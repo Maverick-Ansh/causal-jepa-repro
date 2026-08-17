@@ -91,6 +91,30 @@ scripts/
   aggregate.py                tables + figures
 ```
 
+## Notebooks
+
+| file | purpose |
+|---|---|
+| [`notebooks/causal_jepa_repro.ipynb`](notebooks/causal_jepa_repro.ipynb) | **run it** — clones the repo, builds the world, trains, plots |
+| [`notebooks/causal_jepa_reading.ipynb`](notebooks/causal_jepa_reading.ipynb) | **read it** — print-oriented; figures embedded, all tables filled in, no setup cells |
+
+Both are build artifacts (`scripts/build_notebook.py`, `scripts/build_reading_notebook.py`)
+so prose and code can't drift and no stale outputs get committed. The reading
+notebook pulls its numbers from `results/records.json` and its code from the real
+source files, so what's printed is what was actually run.
+
+To print it:
+
+```bash
+# renders the LaTeX via headless chromium — no TeX install needed
+jupyter nbconvert --to webpdf --allow-chromium-download notebooks/causal_jepa_reading.ipynb
+
+# or, if you have LaTeX, better typesetting for the equations
+jupyter nbconvert --to pdf notebooks/causal_jepa_reading.ipynb
+```
+
+GitHub also renders it inline if you just want to read it in a browser.
+
 ## Reproducing
 
 ```bash
