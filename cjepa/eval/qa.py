@@ -310,6 +310,23 @@ class AloeProbe(nn.Module):
         self.T, self.N, self.d = T, N, d
         self.slot_in = nn.Linear(slot_dim, d)
         self.q_in = nn.Linear(qdim, d)
+        # Role of each slot in THIS question: 0 = irrelevant, 1 = A, 2 = B, 3 = K.
+        #
+        # Why this is here, and why it does not leak the answer: without it the
+        # probe must first solve object grounding — scan 7 slots, decode each
+        # one's colour out of a 128-d random projection, and match it against the
+        # colour named in the question — before it can begin reasoning about
+        # dynamics. Empirically it never gets past that step: with GROUND-TRUTH
+        # future latents as input the probe still scored 50.2% on counterfactual
+        # and 52.1% on predictive questions, i.e. the ceiling sat at chance and
+        # the metric could not have separated any two world models.
+        #
+        # Roles are computed from the question plus the scene's colour->slot
+        # assignment, both of which are already present in the probe's input, so
+        # this supplies no information about the ANSWER. It removes a grounding
+        # burden that is not what the world model is being tested on and lets the
+        # probe spend its capacity on the trajectory, which is.
+        self.role_embed = nn.Embedding(4, d)
         self.time_embed = nn.Parameter(torch.zeros(T, d))
         self.cls = nn.Parameter(torch.zeros(1, 1, d))
         self.qtok = nn.Parameter(torch.zeros(1, 1, d))
@@ -324,10 +341,11 @@ class AloeProbe(nn.Module):
         nn.init.trunc_normal_(self.cls, std=0.02)
         nn.init.trunc_normal_(self.qtok, std=0.02)
 
-    def forward(self, traj: torch.Tensor, q: torch.Tensor):
-        """traj: (B, T, N, slot_dim)   q: (B, qdim)"""
+    def forward(self, traj: torch.Tensor, q: torch.Tensor, roles: torch.Tensor):
+        """traj: (B, T, N, slot_dim)   q: (B, qdim)   roles: (B, N) long in [0,4)"""
         B, T, N, _ = traj.shape
         x = self.slot_in(traj) + self.time_embed[None, :T, None, :]
+        x = x + self.role_embed(roles)[:, None, :, :]     # broadcast over time
         x = x.reshape(B, T * N, self.d)
         qt = self.q_in(q)[:, None, :] + self.qtok
         x = torch.cat([self.cls.expand(B, -1, -1), qt, x], dim=1)
@@ -378,6 +396,19 @@ def train_probe(traj: torch.Tensor, bank_tr: QABank, bank_te: QABank,
     torch.manual_seed(seed)
     B, T, N, sd = traj.shape
     probe = AloeProbe(sd, bank_tr.qvec.shape[-1], T, N, d=d).to(device)
+
+    def roles_of(bank, sl):
+        """(n, N) long: which slots this question refers to."""
+        n = bank.obj_a[sl].numel()
+        r = torch.zeros(n, N, dtype=torch.long, device=device)
+        idx = torch.arange(n, device=device)
+        r[idx, bank.obj_a[sl]] = 1
+        r[idx, bank.obj_b[sl]] = 2
+        k = bank.obj_k[sl]
+        has_k = k >= 0
+        r[idx[has_k], k[has_k]] = 3
+        return r
+
     opt = torch.optim.Adam(probe.parameters(), lr=lr)
     scaler = torch.amp.GradScaler("cuda", enabled=True)
     g = torch.Generator(device=device).manual_seed(seed)
@@ -392,7 +423,7 @@ def train_probe(traj: torch.Tensor, bank_tr: QABank, bank_te: QABank,
         q = bank_tr.qvec[idx]
         y = bank_tr.answer[idx]
         with torch.amp.autocast("cuda", dtype=torch.float16):
-            logits = probe(tr, q)
+            logits = probe(tr, q, roles_of(bank_tr, idx))
             loss = F.cross_entropy(logits.float(), y)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
@@ -408,7 +439,8 @@ def train_probe(traj: torch.Tensor, bank_tr: QABank, bank_te: QABank,
         for i in range(0, bank_te.ep.numel(), 1024):
             sl = slice(i, i + 1024)
             with torch.amp.autocast("cuda", dtype=torch.float16):
-                lg = probe(traj[bank_te.ep[sl]], bank_te.qvec[sl])
+                lg = probe(traj[bank_te.ep[sl]], bank_te.qvec[sl],
+                           roles_of(bank_te, sl))
             preds.append(lg.float().argmax(-1))
         pred = torch.cat(preds)
         ok = (pred == bank_te.answer)
