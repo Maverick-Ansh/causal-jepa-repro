@@ -1,0 +1,39 @@
+{
+  "DINO-WM (patch)": {
+    "tokens_per_step": 196,
+    "feature_dim": 384,
+    "input_feature_size": 75264,
+    "seq_len": 784,
+    "predictor_params_M": 51.58848,
+    "fwd_ms_batch300": 2241.26877784729,
+    "sec_per_replan": 336.1903166770935,
+    "sec_per_episode": 3361.903166770935,
+    "sec_for_50_episodes": 168095.15833854675
+  },
+  "C-JEPA (object)": {
+    "tokens_per_step": 6,
+    "feature_dim": 128,
+    "input_feature_size": 768,
+    "seq_len": 24,
+    "predictor_params_M": 50.801792,
+    "fwd_ms_batch300": 58.65091482798258,
+    "sec_per_replan": 8.797637224197388,
+    "sec_per_episode": 87.97637224197388,
+    "sec_for_50_episodes": 4398.818612098694
+  },
+  "summary": {
+    "input_feature_ratio_pct": 1.0204081632653061,
+    "planning_speedup": 38.21370535175304,
+    "paper_input_feature_ratio_pct": 1.02,
+    "paper_speedup": 8.563150074294205,
+    "paper_dinowm_sec": 5763,
+    "paper_cjepa_sec": 673,
+    "cem": {
+      "samples": 300,
+      "iters": 30,
+      "horizon": 5,
+      "replans_per_episode": 10,
+      "episodes": 50
+    }
+  }
+}

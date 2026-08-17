@@ -1,0 +1,13 @@
+{
+  "tag": "CONTROL_degraded_oracle",
+  "control": "oracle",
+  "encoder": "degraded",
+  "vqa": {
+    "descriptive": 69.25110220909119,
+    "predictive": 66.41221642494202,
+    "counterfactual": 52.945250272750854,
+    "explanatory": 69.01408433914185,
+    "average": 63.77388535031847,
+    "n_eval": 5024
+  }
+}

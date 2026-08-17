@@ -1,0 +1,13 @@
+{
+  "tag": "CONTROL_oracle_oracle",
+  "control": "oracle",
+  "encoder": "oracle",
+  "vqa": {
+    "descriptive": 82.55506753921509,
+    "predictive": 81.98473453521729,
+    "counterfactual": 58.35065841674805,
+    "explanatory": 76.84859037399292,
+    "average": 74.1640127388535,
+    "n_eval": 5024
+  }
+}

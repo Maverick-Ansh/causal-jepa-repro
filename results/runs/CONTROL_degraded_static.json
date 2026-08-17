@@ -1,0 +1,13 @@
+{
+  "tag": "CONTROL_degraded_static",
+  "control": "static",
+  "encoder": "degraded",
+  "vqa": {
+    "descriptive": 71.54185175895691,
+    "predictive": 59.847331047058105,
+    "counterfactual": 53.776854276657104,
+    "explanatory": 64.87675905227661,
+    "average": 61.88296178343949,
+    "n_eval": 5024
+  }
+}

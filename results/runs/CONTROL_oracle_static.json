@@ -1,0 +1,13 @@
+{
+  "tag": "CONTROL_oracle_static",
+  "control": "static",
+  "encoder": "oracle",
+  "vqa": {
+    "descriptive": 89.42731618881226,
+    "predictive": 71.67938947677612,
+    "counterfactual": 59.39015746116638,
+    "explanatory": 66.90140962600708,
+    "average": 71.07882165605096,
+    "n_eval": 5024
+  }
+}
