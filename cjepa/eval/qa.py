@@ -99,6 +99,22 @@ class QABank:
     answer: torch.Tensor    # (Q,) 0/1
     qvec: torch.Tensor      # (Q, qdim) colour-addressed encoding
     n_colors: int
+    fact: torch.Tensor      # (Q,) did A and B factually collide in the window?
+
+    def copy_factual_baseline(self) -> dict:
+        """Accuracy of the degenerate policy 'answer with the factual outcome'.
+
+        This is the number that makes counterfactual accuracy interpretable: any
+        model at or below it has demonstrated no counterfactual reasoning, only
+        collision detection.
+        """
+        out = {}
+        ok = (self.fact.long() == self.answer)
+        for t, name in enumerate(QTYPES):
+            m = self.qtype == t
+            out[name] = float(ok[m].float().mean()) * 100 if m.any() else float("nan")
+        out["average"] = float(ok.float().mean()) * 100
+        return out
 
     def split(self, frac: float, seed: int = 0):
         g = torch.Generator(device=self.ep.device).manual_seed(seed)
@@ -113,7 +129,7 @@ class QABank:
         def sub(mask):
             return QABank(self.ep[mask], self.qtype[mask], self.obj_a[mask],
                           self.obj_b[mask], self.obj_k[mask], self.answer[mask],
-                          self.qvec[mask], self.n_colors)
+                          self.qvec[mask], self.n_colors, self.fact[mask])
         return sub(m), sub(~m)
 
 
@@ -156,17 +172,34 @@ def build_qa_bank(
 
     pair_i, pair_j = torch.triu_indices(N, N, offset=1, device=dev)
 
-    def add_balanced(qt: int, ep_idx, aa, bb, kk, ans, want: int):
-        """Pick `want` questions per episode with a ~50/50 label mix."""
-        for pos in (1, 0):
-            sel = ans == pos
+    def add_balanced(qt: int, ep_idx, aa, bb, kk, ans, want: int, strata=None):
+        """Pick `want` questions per episode, balanced across strata.
+
+        `strata` (optional) is an integer tensor defining the cells to balance
+        over; when omitted we balance on the answer alone.
+
+        WHY STRATA MATTER FOR COUNTERFACTUALS
+        -------------------------------------
+        Deleting an object usually changes nothing, so a naively sampled
+        counterfactual set is ~90% answerable by the degenerate policy "report
+        what factually happened". That would make the counterfactual column a
+        second descriptive column and hide exactly the effect the paper claims.
+        For counterfactual questions we therefore balance over the joint cell
+        (factual outcome, counterfactual outcome), which forces ~50% of questions
+        to have cf != factual and drops the copy-the-factual-outcome baseline to
+        chance. `copy_factual_baseline` is reported so this stays auditable.
+        """
+        cells = strata if strata is not None else ans.long()
+        for pos in sorted(set(cells.tolist())):
+            sel = cells == pos
             if sel.sum() == 0:
                 continue
             idx = sel.nonzero(as_tuple=True)[0]
             # shuffle then take at most want//2 per episode via a per-episode counter
             idx = idx[torch.randperm(idx.numel(), device=dev, generator=g)]
             keep, seen = [], {}
-            cap = max(1, want // 2)
+            n_cells = len(set(cells.tolist()))
+            cap = max(1, want // max(1, n_cells))
             for t in idx.tolist():
                 e = int(ep_idx[t])
                 if seen.get(e, 0) < cap:
@@ -199,9 +232,12 @@ def build_qa_bank(
     bi_t = torch.cat([r[2] for r in reps]); ki_t = torch.cat([r[3] for r in reps])
 
     cf_ans = G_cf[ki_t, bb_t, ai_t, bi_t]
-    add_balanced(2, bb_t, ai_t, bi_t, ki_t, cf_ans, n_per_type)
+    fact_ab = G_all[bb_t, ai_t, bi_t]
+    # 4 cells: (factual, counterfactual) in {0,1}^2 -> forces cf != factual ~50%
+    cf_strata = fact_ab.long() * 2 + cf_ans.long()
+    add_balanced(2, bb_t, ai_t, bi_t, ki_t, cf_ans, n_per_type * 2, strata=cf_strata)
 
-    expl_ans = G_all[bb_t, ai_t, bi_t] & (~cf_ans)
+    expl_ans = fact_ab & (~cf_ans)
     add_balanced(3, bb_t, ai_t, bi_t, ki_t, expl_ans, n_per_type)
 
     ep = torch.cat(eps_l); qt = torch.cat(qt_l)
@@ -220,7 +256,8 @@ def build_qa_bank(
         F.one_hot(ck, C).float() * (k >= 0).float()[:, None],
         (k >= 0).float()[:, None],
     ], dim=-1)
-    return QABank(ep, qt, a, b, k, ans, qvec, C)
+    fact = G_all[ep, a, b]
+    return QABank(ep, qt, a, b, k, ans, qvec, C, fact)
 
 
 # --------------------------------------------------------------------------- #

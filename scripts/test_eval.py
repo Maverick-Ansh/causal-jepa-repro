@@ -44,13 +44,12 @@ for t, name in enumerate(QTYPES):
 
 # counterfactual answers must genuinely differ from the factual outcome,
 # otherwise the "counterfactual" category is secretly a descriptive one
-G_all = collision_matrix(ro, 0, (Th + Tp) * skip, ro.B, ro.N)
-cf = bank.qtype == 2
-fact_same = (G_all[bank.ep[cf], bank.obj_a[cf], bank.obj_b[cf]].long()
-             == bank.answer[cf]).float().mean()
-print(f"[qa ] counterfactual answer == factual outcome for {fact_same:.1%} of Qs "
-      f"(should be well under 100%: deleting an object must change outcomes)")
-assert fact_same < 0.95, "counterfactual questions are not counterfactual"
+base = bank.copy_factual_baseline()
+print("[qa ] copy-the-factual-outcome baseline: "
+      + "  ".join(f"{k} {v:.1f}" for k, v in base.items()))
+assert base["counterfactual"] < 62.0, (
+    f"counterfactual questions still solvable by copying the factual outcome "
+    f"({base['counterfactual']:.1f}%) — stratification failed")
 
 expl = bank.qtype == 3
 print(f"[qa ] explanatory P(yes)={float(bank.answer[expl].float().mean()):.3f} "
@@ -77,7 +76,7 @@ states = data.window_states(ep, st)
 for mode in ["oracle", "static", "model"]:
     t0 = time.time()
     traj = imagined_trajectories(model, enc, states, Th, mode=mode)
-    acc = train_probe(traj, tr, te, steps=250, seed=0, device=dev)
+    acc = train_probe(traj, tr, te, steps=900, seed=0, device=dev)
     print(f"[prb] {mode:7s} " + "  ".join(f"{k} {v:.1f}" for k, v in acc.items()
                                           if k != "n_eval")
           + f"   ({time.time()-t0:.0f}s)")
