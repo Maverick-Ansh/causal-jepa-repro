@@ -368,7 +368,7 @@ def imagined_trajectories(model, encoder, states: torch.Tensor, Th: int,
 
 def train_probe(traj: torch.Tensor, bank_tr: QABank, bank_te: QABank,
                 steps: int = 3000, batch: int = 512, lr: float = 1e-3,
-                seed: int = 0, device: str = "cuda", d: int = 96,
+                seed: int = 0, device: str = "cuda", d: int = 128,
                 log=lambda s: None):
     """Train the ALOE-analogue probe and return per-category accuracy.
 
