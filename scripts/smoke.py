@@ -55,8 +55,15 @@ enc = build_encoder("oracle", cfg.state_dim(), 128, seed=0).to(dev)
 enc.fit_normalizer(ro.state)
 z = enc(ro.state[:8])
 rec = enc.decode(z)
-err = (rec[..., :4] - ro.state[:8, ..., :4]).abs().max()
-print(f"[enc ] oracle latents {tuple(z.shape)}  decode round-trip max err {err:.2e}")
+# Round-trip is exact only on *present* slots: an empty slot standardises to 0 and
+# decodes back to mu, not to the raw all-zero state. That is by construction, so
+# the assertion is scoped to real objects.
+pres = ro.state[:8, ..., 5] > 0.5
+err = (rec[..., :4] - ro.state[:8, ..., :4]).abs().max(-1).values[pres].max()
+err_empty = (rec[..., :4] - ro.state[:8, ..., :4]).abs().max(-1).values[~pres].max()
+assert err < 1e-3, f"oracle encoder must be losslessly invertible on real objects, got {err}"
+print(f"[enc ] oracle latents {tuple(z.shape)}  decode round-trip max err "
+      f"{err:.2e} (present) / {err_empty:.2e} (empty slots, expected non-zero)")
 
 encw = build_encoder("degraded", cfg.state_dim(), 128, seed=0).to(dev)
 encw.fit_normalizer(ro.state)
