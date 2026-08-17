@@ -46,11 +46,17 @@ def main():
         wcfg, {"train": SplitSpec(2048, 0), "test": SplitSpec(args.test_eps, 555)},
         Th, Tp, frame_skip=skip, device=dev, cache_dir=args.cache)
 
-    encs = {}
+    encs, readout_err = {}, {}
     for kind in ["oracle", "degraded"]:
         e = build_encoder(kind, wcfg.state_dim(), 128, seed=0).to(dev)
         e.fit_normalizer(data["train"].states)
+        # position-space metrics read latents back out through this; the residual
+        # is the irreducible floor for any error measured through it
+        readout_err[kind] = e.fit_readout(data["train"].states)
         encs[kind] = e
+        print(f"[readout] {kind}: linear read-out position RMSE "
+              f"{readout_err[kind]:.5f} (world is 1x1)")
+    json.dump(readout_err, open(os.path.join(args.sweep, "readout_err.json"), "w"))
 
     B = min(args.n_cf, data["test"].B)
     ep = torch.arange(B, device=dev)
@@ -79,6 +85,7 @@ def main():
         res["counterfactual"] = counterfactual_rollout(
             model, encs[enc_kind], env, states, frame_skip=skip)
         res["collision"] = collision_prediction(model, encs[enc_kind], states)
+        res["readout_rmse"] = readout_err[enc_kind]
         json.dump(res, open(jf, "w"), indent=2)
         c, k = res["counterfactual"], res["collision"]
         print(f"{tag:24s} cf_gain {c['cf_gain']:+.3f} (n={c['n']}) "

@@ -114,8 +114,46 @@ class OracleSlotEncoder(nn.Module):
         return self._pre(state) @ self.W + self.b
 
     @torch.no_grad()
+    def fit_readout(self, states: torch.Tensor, batch: int = 200_000) -> float:
+        """Least-squares read-out  z -> state, fitted once on train data, frozen.
+
+        WHY THIS IS NEEDED
+        ------------------
+        `decode` below inverts the projection W analytically, which is exact for
+        the oracle encoder. It is WRONG for `DegradedSlotEncoder`: that encoder
+        bleeds content between slots and pushes through a rank-limited projector,
+        so its map is genuinely non-invertible — information is destroyed on
+        purpose. Analytically "inverting" only W would silently produce garbage
+        positions for the degraded arm, corrupting every position-space metric.
+
+        The honest replacement is the best *linear estimate* of an object's state
+        from its slot latent, fitted on training data. For the oracle encoder it
+        recovers the exact inverse (residual ~0); for the degraded encoder it
+        leaves a non-zero residual, which is real irreducible loss and is
+        returned here so it can be reported as the floor for any position-space
+        error measured through it.
+        """
+        # encode as a SET so slot-bleeding is applied exactly as at train time,
+        # then pair each latent with its own object's state
+        flat_s = states.reshape(-1, self.state_dim)
+        flat_z = self.forward(states).reshape(-1, self.d)
+        idx = (flat_s[:, 5] > 0.5).nonzero(as_tuple=True)[0]
+        if idx.numel() > batch:
+            idx = idx[torch.randperm(idx.numel(), device=idx.device)[:batch]]
+        flat_s, z = flat_s[idx], flat_z[idx]
+        X = torch.cat([z, torch.ones_like(z[:, :1])], 1).double()
+        Y = flat_s.double()
+        A = torch.linalg.lstsq(X, Y).solution
+        self.register_buffer("A_read", A.float())
+        resid = (X.float() @ self.A_read - flat_s)[:, :2]
+        return float(resid.pow(2).sum(-1).sqrt().mean())
+
+    @torch.no_grad()
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """(..., N, d) -> (..., N, state_dim). Analysis-only read-out."""
+        if hasattr(self, "A_read"):
+            zz = torch.cat([z, torch.ones_like(z[..., :1])], -1)
+            return zz @ self.A_read
         return ((z - self.b) @ self.W_pinv) * self.sd + self.mu
 
 
