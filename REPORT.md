@@ -164,22 +164,23 @@ result. Alongside raw accuracy we therefore quote **headroom captured**,
 
 ![Tab. 1 reproduction](figures/fig1_vqa_vs_mask.png)
 
-Full table: [`results/table1.md`](results/table1.md). Oracle-encoder arm, VQA
-average accuracy, mean of 2 seeds:
+Full table: [`results/table1.md`](results/table1.md). VQA average accuracy,
+mean ± std over 2 seeds, with the delta against `|M| = 0`:
 
-| `\|M\|` | 0 (OC-JEPA) | 1 | 2 | 3 | 4 | floor | ceiling |
+| encoder | `\|M\|`=0 (OC-JEPA) | 1 | 2 | 3 | 4 | floor | ceiling |
 |---|---|---|---|---|---|---|---|
-| average | 73.25 | 72.25 | 72.55 | 72.65 | 72.30 | 71.08 | 74.16 |
+| oracle | 73.23 ±0.66 | 72.24 (−0.99) | 72.56 (−0.67) | 72.63 (−0.60) | 72.33 (−0.90) | 71.08 | 74.16 |
+| degraded | 61.45 ±1.17 | 61.74 (+0.30) | 60.99 (−0.46) | 60.00 (−1.44) | 59.69 (−1.75) | 61.88 | 63.77 |
 
-There is no effect. Every arm sits within ±1 point of every other, while the
-**seed-to-seed spread inside a single configuration reaches 1.7 points**
-(`|M|=2`: 71.7 vs 73.4). Differences smaller than the noise are not results.
+There is no positive effect anywhere, and the deltas are comparable to the
+seed-to-seed spread inside a single configuration.
 
-But the more important number is the bracket. The probe's entire dynamic range —
-ceiling minus floor — is **3.08 points**, and OC-JEPA already captures 69% of it
-before any masking is applied. In the degraded-encoder arm the bracket is
-narrower still (**1.9 points**), and the world model's imagined future is not
-even reliably better than repeating the last observed frame.
+The more important number is the bracket. In the oracle arm the probe's entire
+dynamic range — ceiling minus floor — is **3.08 points**, and OC-JEPA already
+captures 69% of it *before any masking is applied*. In the degraded arm the
+bracket is **1.89 points**, and OC-JEPA (61.45) actually sits slightly *below*
+the static floor (61.88): with a lossy encoder, the model's imagined future is
+worth no more to the probe than freezing the last observed frame.
 
 So this is a **failure to test C1/C2, not evidence against them**. The distinction
 matters and we will not blur it: to detect a +21-point counterfactual effect you
@@ -237,11 +238,148 @@ models, and the attention one is the optimistic one. A reader who accepts
 attention as evidence of learned interaction structure would conclude something
 here that the causal probe does not support.
 
+### 4.4 Probe-free measurements agree: no gain, and a small cost
+
+![direct metrics](figures/fig3_direct_metrics.png)
+
+These touch the world model directly — no learned probe, so no bracket problem.
+Oracle encoder, mean of 2 seeds:
+
+| `\|M\|` | 0 | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| counterfactual gain `cf_gain` | **0.234** | 0.225 | 0.225 | 0.227 | 0.218 |
+| collision F1 over imagined horizon | **0.370** | 0.371 | 0.332 | 0.343 | 0.330 |
+| forward position error | 0.0366 | 0.0367 | **0.0361** | 0.0365 | 0.0372 |
+
+`cf_gain = 1 − d_model/d_ignore` under `do(remove k)`, so 0.23 means every model
+*does* respond to the intervention — its prediction lands ~23% closer to the true
+counterfactual than simply predicting what factually happened. But masking does
+not improve that, and collision F1 — the metric that isolates the
+interaction-dependent part of the dynamics — drifts **down** by ~0.04 at
+`|M| ≥ 2`. Forward position error is flat throughout.
+
+**The degraded arm's position-space metrics are omitted as uninformative, and we
+can say precisely why.** The ridge read-out `z → state` has a residual of
+**0.180** on that encoder (versus **0.00000** on the oracle), while its measured
+forward error is 0.193 — i.e. the read-out error *is* essentially the whole
+measurement. That encoder destroys position information by construction, so no
+position-space number computed through it says anything about the predictor. This
+is exactly why `fit_readout` returns its residual rather than hiding it.
+
+### 4.5 Planning efficiency (C5): reproduced
+
+The token-budget arithmetic matches the paper exactly:
+
+```
+C-JEPA   6 tokens x 128 =    768 features    (4 object slots + action + proprioception)
+DINO-WM  196    x 384   =  75264 features
+ratio                       1.02%            paper: 1.02%
+```
+
+Under the paper's own CEM workload (App. G: 300 candidates, 30 iterations,
+horizon 5, 10 replans/episode, 50 episodes) and with **both arms using the same
+predictor architecture** — 6 layers, 16 heads, head dim 64, MLP 2048, as specified
+in App. E.2 and App. H — the only difference is sequence length (784 vs 24
+tokens):
+
+| | forward pass (batch 300) | 50 episodes |
+|---|---|---|
+| DINO-WM (patch) | 2241.3 ms | 168,095 s |
+| C-JEPA (object) | 58.7 ms | 4,399 s |
+| **speedup** | | **38.2×** |
+
+The paper reports **8.56×** (5,763 s vs 673 s on an L40s). Our speedup is larger
+because a T4 saturates much earlier on the 784-token workload than an L40s does,
+which inflates the patch arm's cost. The claim under test is ">8× faster
+planning", and it holds with room to spare; the precise multiplier is
+hardware-dependent and should not be compared across GPUs. The 1.02% feature
+ratio, being pure arithmetic, matches exactly.
+
+Note this reproduces only the *efficiency* half of Tab. 3. The success-rate half
+needs the Push-T environment and is not attempted.
+
 <!--RESULTS-->
 
 ---
 
 ## 5. Verdict per claim
+
+| # | Claim | Verdict here |
+|---|---|---|
+| C1 | masking improves interaction-dependent prediction | **not reproduced** — flat, with a small *decline* in collision F1 at `\|M\| ≥ 2` |
+| C2 | gains concentrate on counterfactual reasoning | **not reproduced**; and the VQA route to it was **untestable** (3.1-point bracket) |
+| C3 | optimal `\|M\|` depends on encoder quality | **partially supported** — the *harm* half reproduces, the *benefit* half does not (below) |
+| C4 | attention aligns with the influence neighborhood | **reproduced** (+0.11 AUROC, clean separation) — but see below |
+| C4′ | …and that alignment reflects functional dependence | **contradicted** — the causal ablation probe stays near chance |
+| C5 | 1.02% of input features, >8× faster planning | **reproduced** (see §4.4) |
+
+### C3 in detail: the asymmetry reproduces, the benefit does not
+
+Tab. 1's most interesting result is that masking budget interacts with encoder
+quality — VideoSAUR improves all the way to `|M| = 4` (+6.61) while SAVi peaks at
+`|M| = 2` and then *collapses* at `|M| = 4` (−4.00). The paper's explanation:
+"excessive masking can remove informative dependencies, indicating an optimal
+masking regime that depends on the robustness of the underlying object
+representations from the encoder."
+
+Comparing `|M| = 0 → 4` in our two arms:
+
+| | oracle (strong) | degraded (weak) |
+|---|---|---|
+| VQA average, `\|M\|`=0 → 4 | −0.90 | **−1.75** |
+| descriptive, `\|M\|`=0 → 4 | +0.22 | **−4.19** |
+
+Heavy masking costs the weak encoder about twice as much overall, and roughly
+twenty times as much on descriptive questions — the category that depends most
+directly on the slots being clean. That is exactly the mechanism the paper
+proposes: when slots are already unreliable, deleting more of them destroys
+information that cannot be recovered from context. **The "excessive masking hurts
+weak encoders more" half of C3 reproduces.**
+
+What does not reproduce is the other half — SAVi's large *gain* at moderate
+`|M|`. Our degraded arm's best budget is `|M| = 1` at +0.30, well inside noise.
+One suggestive detail: the degraded arm's *counterfactual* column does peak at
+`|M| = 2` (+1.49), which is precisely where the paper's SAVi peaks. We flag it as
+a coincidence worth noting rather than a result, because that column's static
+floor (53.78) sits above its own ceiling (52.95) — the measurement is noise there.
+
+### Why we think C1/C2 did not reproduce here
+
+The honest answer is that this world is too easy for the mechanism to matter, and
+we can say something more specific than that.
+
+C-JEPA's extra term is `L_history`: recover a masked object's past from the other
+objects. The paper's argument is that this "prevents shortcut solutions such as
+trivial temporal interpolation" — and that shortcut is real *for history
+completion*. But `L_future` already applies interaction pressure of its own: you
+cannot roll a multi-object scene forward 10 steps without predicting collisions.
+So the marginal value of `L_history` depends on **how much interaction pressure
+`L_future` is already applying**.
+
+In our setup that pressure is nearly maximal. The encoder is lossless, the physics
+is exactly deterministic, and the horizon is short, so OC-JEPA already reaches
+0.036 mean position error and 69% of the probe's available headroom before any
+masking. There is very little interaction structure left for `L_history` to add —
+and it is not free: it spends model capacity and gradient signal on an auxiliary
+task, which is the most plausible reading of the small collision-F1 decline at
+`|M| ≥ 2`.
+
+The paper's regime differs in exactly the ways that would widen this gap: a
+*learned, lossy* encoder (VideoSAUR/SAVi slots are noisy and bleed), a much longer
+rollout (128→160 frames vs our 10 steps), and real scene complexity. All three
+make forward prediction harder and therefore leave more room for an auxiliary
+objective to help. Notably, the paper's *own* Tab. 1 supports this reading: the
+weaker encoder (SAVi) is where masking behaves most dramatically — and most
+erratically.
+
+So we read our result as bounding the claim rather than refuting it: **object-level
+masking is not a free win; its value depends on the forward objective being
+insufficient on its own.** We could not test the regime where the paper says it
+matters.
+
+The one thing masking demonstrably *did* do, even here, is reshape the predictor's
+attention toward genuine interaction partners (§4.2). The mechanism operates. It
+just did not convert into accuracy at this scale.
 
 <!--VERDICT-->
 
