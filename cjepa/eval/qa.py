@@ -231,11 +231,43 @@ def build_qa_bank(
     bb_t = torch.cat([r[0] for r in reps]); ai_t = torch.cat([r[1] for r in reps])
     bi_t = torch.cat([r[2] for r in reps]); ki_t = torch.cat([r[3] for r in reps])
 
+    def add_global_balanced(qt: int, ep_idx, aa, bb, kk, ans, cells, cap_per_ep: int):
+        """Take an EQUAL number of questions from every cell, pooled over episodes.
+
+        add_balanced caps per episode, which cannot equalise a cell that is
+        globally rare — and the interesting counterfactual cells (deleting K
+        flips whether A and B meet) are exactly the rare ones. Here we pool all
+        candidates, take min-cell-count from each cell, and only then apply a
+        per-episode cap so no single episode dominates.
+        """
+        groups = []
+        for c in sorted(set(cells.tolist())):
+            idx = (cells == c).nonzero(as_tuple=True)[0]
+            idx = idx[torch.randperm(idx.numel(), device=dev, generator=g)]
+            keep, seen = [], {}
+            for t in idx.tolist():
+                e = int(ep_idx[t])
+                if seen.get(e, 0) < cap_per_ep:
+                    seen[e] = seen.get(e, 0) + 1
+                    keep.append(t)
+            groups.append(keep)
+        if not groups or min(len(x) for x in groups) == 0:
+            return
+        n = min(len(x) for x in groups)
+        keep = torch.tensor([t for grp in groups for t in grp[:n]],
+                            device=dev, dtype=torch.long)
+        eps_l.append(ep_idx[keep]); qt_l.append(torch.full_like(keep, qt))
+        a_l.append(aa[keep]); b_l.append(bb[keep]); k_l.append(kk[keep])
+        ans_l.append(ans[keep].long())
+
     cf_ans = G_cf[ki_t, bb_t, ai_t, bi_t]
     fact_ab = G_all[bb_t, ai_t, bi_t]
-    # 4 cells: (factual, counterfactual) in {0,1}^2 -> forces cf != factual ~50%
-    cf_strata = fact_ab.long() * 2 + cf_ans.long()
-    add_balanced(2, bb_t, ai_t, bi_t, ki_t, cf_ans, n_per_type * 2, strata=cf_strata)
+    # 4 cells over (does deleting K change the outcome?, what IS the outcome?).
+    # Equal cells => P(yes) = 0.5 AND P(cf != factual) = 0.5, which pins the
+    # copy-the-factual-outcome baseline at chance.
+    changed = (cf_ans != fact_ab)
+    cf_cells = changed.long() * 2 + cf_ans.long()
+    add_global_balanced(2, bb_t, ai_t, bi_t, ki_t, cf_ans, cf_cells, cap_per_ep=2)
 
     expl_ans = fact_ab & (~cf_ans)
     add_balanced(3, bb_t, ai_t, bi_t, ki_t, expl_ans, n_per_type)
