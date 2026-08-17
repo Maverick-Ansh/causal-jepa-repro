@@ -147,6 +147,96 @@ adding information — but it is invisible until you look for it.
 
 ## 4. Results
 
+### 4.0 How to read these numbers
+
+Every VQA number lives inside a bracket we measure explicitly:
+
+* **ceiling** — the same probe reading *ground-truth* future latents
+* **floor** — the same probe reading the last observed frame, repeated
+
+A world model can only be scored inside `[floor, ceiling]`. Where that interval
+is narrow, the metric cannot resolve differences between arms no matter how large
+the underlying difference is, and we say so rather than reporting the noise as a
+result. Alongside raw accuracy we therefore quote **headroom captured**,
+`(model − floor) / (ceiling − floor)`.
+
+### 4.1 The VQA metric saturates — C1 and C2 are *untested*, not refuted
+
+![Tab. 1 reproduction](figures/fig1_vqa_vs_mask.png)
+
+Full table: [`results/table1.md`](results/table1.md). Oracle-encoder arm, VQA
+average accuracy, mean of 2 seeds:
+
+| `\|M\|` | 0 (OC-JEPA) | 1 | 2 | 3 | 4 | floor | ceiling |
+|---|---|---|---|---|---|---|---|
+| average | 73.25 | 72.25 | 72.55 | 72.65 | 72.30 | 71.08 | 74.16 |
+
+There is no effect. Every arm sits within ±1 point of every other, while the
+**seed-to-seed spread inside a single configuration reaches 1.7 points**
+(`|M|=2`: 71.7 vs 73.4). Differences smaller than the noise are not results.
+
+But the more important number is the bracket. The probe's entire dynamic range —
+ceiling minus floor — is **3.08 points**, and OC-JEPA already captures 69% of it
+before any masking is applied. In the degraded-encoder arm the bracket is
+narrower still (**1.9 points**), and the world model's imagined future is not
+even reliably better than repeating the last observed frame.
+
+So this is a **failure to test C1/C2, not evidence against them**. The distinction
+matters and we will not blur it: to detect a +21-point counterfactual effect you
+need an instrument with more than 3 points of range. Ours does not have it,
+because with a lossless frozen encoder and a 10-step horizon, plain forward
+prediction is already close enough to ground truth that a downstream reasoner
+cannot tell the arms apart. The paper's CLEVRER setting — a learned, lossy
+encoder and a 128→160 frame rollout — is a far harder regime, and we would expect
+a much wider bracket there.
+
+*(A caveat on the table: `val_pos_err` in the degraded-arm run JSONs is computed
+through the analytic pseudo-inverse and is not meaningful for that encoder — see
+§3(c) and `fit_readout`. Use `val_latent_mse` within an arm, and note that latent
+MSE is not comparable **across** encoders either, since the degraded encoder's
+rank-10 bottleneck shrinks the latent variance the loss is measured in.)*
+
+### 4.2 Influence neighborhoods: C4 reproduces, clearly
+
+![influence](figures/fig2_influence_vs_mask.png)
+
+This is the measurement the paper could not make — it needs a ground-truth
+temporal interaction graph, which CLEVRER and PHYRE do not provide and our
+simulator does. Corollary 1 predicts that training under object-level masking
+makes the predictor's cross-slot attention align with the true influence
+neighborhood. Scoring attention against the actual collision graph (AUROC,
+oracle encoder, 2 seeds):
+
+| `\|M\|` | 0 | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| attention AUROC | 0.642 | 0.742 | 0.750 | **0.760** | 0.751 |
+| ablation AUROC | 0.494 | 0.540 | 0.509 | 0.515 | 0.536 |
+
+The attention effect is **+0.11 AUROC** and the separation is clean: the *worst*
+masked run (0.728) beats the *best* unmasked run (0.694), across 8 runs versus 2.
+It rises with `|M|` and flattens around `|M| = 3`. **C4 is reproduced**, and
+quantitatively rather than qualitatively.
+
+### 4.3 …but attention alignment is not functional dependence
+
+The second row above is the interesting one. Our causal probe ablates object *j*
+from the predictor's context and measures how much worse the masked object *i*'s
+prediction gets — a direct test of whether the model actually *uses* the true
+interaction partners, which is what Def. 1 asserts ("minimal sufficient subset")
+and what Thm. 1 needs.
+
+That probe sits at **0.49 → 0.54**, i.e. barely above chance, with no clear trend.
+The model's attention increasingly *points at* the right objects while its
+computation remains only weakly *dependent* on them.
+
+This does not contradict any theorem in the paper — Thm. 1 is a statement about
+the loss-optimal predictor, and our predictors are not loss-optimal. What it does
+undercut is the *measurement strategy*: the paper's evidence for Cor. 1 is
+attention maps (App. J), following SPARTAN. Our two probes disagree on the same
+models, and the attention one is the optimistic one. A reader who accepts
+attention as evidence of learned interaction structure would conclude something
+here that the causal probe does not support.
+
 <!--RESULTS-->
 
 ---

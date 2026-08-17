@@ -35,6 +35,7 @@ def main():
     ap.add_argument("--n_cf", type=int, default=384)
     ap.add_argument("--d_model", type=int, default=256)
     ap.add_argument("--mlp_hidden", type=int, default=1024)
+    ap.add_argument("--force", type=int, default=0, help="re-evaluate finished runs")
     args = ap.parse_args()
 
     dev = "cuda"
@@ -71,7 +72,7 @@ def main():
         if not os.path.exists(jf):
             print(f"skip {tag}: no json"); continue
         res = json.load(open(jf))
-        if "counterfactual" in res:
+        if "counterfactual" in res and not args.force:
             print(f"skip {tag}: already evaluated"); continue
 
         enc_kind = res.get("encoder") or ("degraded" if "degraded" in tag else "oracle")

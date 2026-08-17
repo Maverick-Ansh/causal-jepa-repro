@@ -143,7 +143,16 @@ class OracleSlotEncoder(nn.Module):
         flat_s, z = flat_s[idx], flat_z[idx]
         X = torch.cat([z, torch.ones_like(z[:, :1])], 1).double()
         Y = flat_s.double()
-        A = torch.linalg.lstsq(X, Y).solution
+        # RIDGE, not lstsq. torch.linalg.lstsq on CUDA uses the QR ("gels") driver,
+        # which ASSUMES FULL RANK. DegradedSlotEncoder pushes through a rank-10
+        # projector, so X is rank-deficient by construction and lstsq returns
+        # garbage there — it produced position errors of ~6.7e3 in a 1x1 world
+        # before this was caught. A small ridge term makes the system
+        # well-conditioned and leaves the oracle case exact (verified: residual
+        # 0.00000).
+        lam = 1e-6 * float(X.shape[0])
+        G = X.T @ X + lam * torch.eye(X.shape[1], dtype=X.dtype, device=X.device)
+        A = torch.linalg.solve(G, X.T @ Y)
         self.register_buffer("A_read", A.float())
         resid = (X.float() @ self.A_read - flat_s)[:, :2]
         return float(resid.pow(2).sum(-1).sqrt().mean())
