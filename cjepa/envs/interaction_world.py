@@ -200,7 +200,13 @@ class InteractionWorld:
         vel = torch.stack([torch.cos(theta), torch.sin(theta)], dim=-1) * speed[..., None]
         vel = vel * present[..., None]
 
-        color = torch.randint(0, cfg.n_colors, (B, N), device=dev, generator=generator)
+        # Colours are sampled WITHOUT replacement within an episode so that a
+        # colour uniquely names an object. CLEVRER questions refer to objects by
+        # attribute ("the red rubber cube"), not by slot index, and we need the
+        # same property: if questions referred to slots directly, a probe with an
+        # oracle encoder could answer without ever identifying anything.
+        color = torch.argsort(torch.rand(B, cfg.n_colors, device=dev,
+                                         generator=generator), dim=-1)[:, :N]
         shape = torch.randint(0, cfg.n_shapes, (B, N), device=dev, generator=generator)
         return pos, vel, r, present, color, shape
 
@@ -309,6 +315,21 @@ class InteractionWorld:
         return Rollout(state, present, ev.long(), we.long(), cfg)
 
     # ------------------------------------------------------------------- public
+    @staticmethod
+    def unpack(state0: torch.Tensor, n_colors: int) -> tuple:
+        """Recover simulator inputs from a packed frame — needed to branch a
+        counterfactual off an existing episode's initial condition.
+
+        state0: (B, N, state_dim) at t = 0.
+        """
+        pos = state0[..., 0:2].clone()
+        vel = state0[..., 2:4].clone()
+        r = state0[..., 4].clone()
+        present = state0[..., 5].clone()
+        color = state0[..., 6 : 6 + n_colors].argmax(-1)
+        shape = state0[..., 6 + n_colors :].argmax(-1)
+        return pos, vel, r, present, color, shape
+
     def generate(self, B: int, seed: int | None = None) -> Rollout:
         g = torch.Generator(device=self.device)
         g.manual_seed(self.cfg.seed if seed is None else seed)
