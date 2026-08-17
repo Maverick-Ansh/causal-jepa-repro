@@ -12,6 +12,26 @@ reproduced, what didn't, and what broke along the way.
 
 Built on a **Colab frontend driving a Kaggle 2×T4 backend**.
 
+## Headline findings
+
+| Claim | Verdict |
+|---|---|
+| Object-level masking improves interaction-dependent prediction | **not reproduced** at this scale |
+| Gains concentrate on counterfactual reasoning | **untestable here** — the VQA metric's ceiling-to-floor bracket is only 3.1 points |
+| Optimal `\|M\|` depends on encoder quality | **partially** — heavy masking hurts the weak encoder ~2× more, as predicted |
+| Attention aligns with the influence neighborhood (Cor. 1) | **reproduced**, +0.11 AUROC, in both encoder arms |
+| …and that alignment reflects functional dependence | **contradicted** — a causal ablation probe stays at chance |
+| 1.02% of input features, >8× faster planning | **reproduced** (1.02% exactly; 38× on a T4) |
+
+![influence neighborhoods](figures/fig2_influence_vs_mask.png)
+
+The two results worth the most attention: object-level masking demonstrably
+reshapes *where the predictor attends* — toward genuine interaction partners —
+while every accuracy metric stays flat; and the attention-based evidence the
+paper uses for that claim is **not** corroborated by a causal probe of the same
+models. Details, including why C1/C2 could not be *tested* rather than merely
+failing, are in [`REPORT.md`](REPORT.md).
+
 ---
 
 ## What the paper claims

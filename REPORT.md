@@ -210,13 +210,20 @@ oracle encoder, 2 seeds):
 
 | `\|M\|` | 0 | 1 | 2 | 3 | 4 |
 |---|---|---|---|---|---|
-| attention AUROC | 0.642 | 0.742 | 0.750 | **0.760** | 0.751 |
-| ablation AUROC | 0.494 | 0.540 | 0.509 | 0.515 | 0.536 |
+| **attention** AUROC, oracle | 0.642 | 0.742 | 0.750 | **0.760** | 0.751 |
+| **attention** AUROC, degraded | 0.624 | **0.720** | 0.693 | 0.688 | 0.704 |
+| ablation AUROC, oracle | 0.494 | 0.540 | 0.509 | 0.515 | 0.536 |
+| ablation AUROC, degraded | 0.497 | 0.497 | 0.498 | 0.537 | 0.538 |
 
-The attention effect is **+0.11 AUROC** and the separation is clean: the *worst*
-masked run (0.728) beats the *best* unmasked run (0.694), across 8 runs versus 2.
-It rises with `|M|` and flattens around `|M| = 3`. **C4 is reproduced**, and
-quantitatively rather than qualitatively.
+The attention effect is **+0.11 AUROC** (oracle) and **+0.08** (degraded), it
+appears in *both* encoder arms, and in the oracle arm the separation is clean:
+the *worst* masked run (0.728) beats the *best* unmasked run (0.694), across 8
+runs versus 2. It rises immediately at `|M| = 1` and then flattens.
+
+**C4 is reproduced** — and quantitatively rather than qualitatively, which is the
+part the paper could not do. Note this is also the one place where masking's
+effect is unambiguous while every accuracy metric stays flat: masking is clearly
+*doing something* to the predictor, and it is the thing the paper says it does.
 
 ### 4.3 …but attention alignment is not functional dependence
 
@@ -226,9 +233,10 @@ prediction gets — a direct test of whether the model actually *uses* the true
 interaction partners, which is what Def. 1 asserts ("minimal sufficient subset")
 and what Thm. 1 needs.
 
-That probe sits at **0.49 → 0.54**, i.e. barely above chance, with no clear trend.
-The model's attention increasingly *points at* the right objects while its
-computation remains only weakly *dependent* on them.
+That probe sits at **0.49 → 0.54** in both arms, i.e. barely above chance, with
+seed error bars that straddle 0.5 (see the right panel of the figure above). The
+model's attention increasingly *points at* the right objects while its computation
+remains only weakly *dependent* on them.
 
 This does not contradict any theorem in the paper — Thm. 1 is a statement about
 the loss-optimal predictor, and our predictors are not loss-optimal. What it does
